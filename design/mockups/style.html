@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDU-Tracker style sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0C0C0C;
+    --surface: #131313;
+    --raised: #1A1A1A;
+    --line: #2B2B2B;
+    --line-strong: #3D3D3D;
+    --text: #E9E7E2;
+    --muted: #8A8883;
+    --disabled: #55534F;
+    --accent: #FF5A1F;
+    --s1: #7D8CA3; --s2: #869777; --s3: #A3866F; --s4: #9A8298; --s5: #6E9895; --s6: #A39766;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --t: 120ms linear;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; border-radius: 0; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 400 14px/24px var(--sans); }
+  .mono, .label, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* 01 TIMER style section labels */
+  .label { font-size: 11px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 400; }
+  .label b { color: var(--text); font-weight: 400; margin-right: 8px; }
+
+  /* App frame */
+  .app { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
+  .side { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  .brand { height: 56px; padding: 0 24px; display: flex; align-items: center; border-bottom: 1px solid var(--line); font: 500 14px/24px var(--mono); letter-spacing: 0.08em; }
+  .nav { list-style: none; margin: 0; padding: 8px 0; }
+  .nav a { display: block; position: relative; padding: 8px 24px; color: var(--muted); text-decoration: none; transition: background-color var(--t), color var(--t); }
+  .nav a:hover { background: var(--text); color: var(--bg); }
+  .nav a[aria-current="page"] { color: var(--text); }
+  .nav a[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+  .side-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 16px 24px; }
+  .side-foot p { margin: 0; }
+
+  main { min-width: 0; }
+  .head { height: 56px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+  .head h1 { font: 500 14px/24px var(--sans); margin: 0; }
+
+  /* Spec sheet grid: cells share 1px borders */
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); }
+  .cell { background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 24px; min-width: 0; position: relative; }
+  .c8 { grid-column: span 8; } .c4 { grid-column: span 4; } .c6 { grid-column: span 6; } .c12 { grid-column: span 12; }
+  .cell-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 24px; }
+
+  /* Timer card */
+  .timer.running::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 2px; background: var(--accent); }
+  .timer-subject { display: flex; align-items: center; gap: 8px; }
+  .sq { width: 8px; height: 8px; flex: none; display: inline-block; }
+  .timer-display { font: 500 96px/96px var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; margin: 32px 0; }
+  .running .timer-display { color: var(--accent); }
+  .timer-meta { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0 32px; margin-bottom: 24px; }
+  .timer-meta dt { font: 11px/16px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .timer-meta dd { margin: 0; font: 14px/24px var(--mono); font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .modes { display: flex; border: 1px solid var(--line-strong); width: fit-content; }
+  .modes button + button { border-left: 1px solid var(--line-strong); }
+  .modes button { border: 0; }
+
+  .state { display: inline-flex; align-items: center; gap: 8px; font: 11px/16px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+  .state .sq { background: var(--accent); }
+
+  /* Buttons */
+  .btn { font: 500 11px/16px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; height: 40px; padding: 0 16px; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); cursor: pointer; transition: background-color var(--t), color var(--t), border-color var(--t); }
+  .btn:hover, .btn.is-hover { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn:focus-visible, .btn.is-focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .btn.primary:hover, .btn.primary.is-hover { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn:disabled { background: var(--surface); color: var(--disabled); border-color: var(--line); cursor: not-allowed; }
+  .btn.seg { background: transparent; }
+  .btn.seg { position: relative; }
+  .btn.seg[aria-pressed="true"] { background: var(--raised); color: var(--text); }
+  .btn.seg[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); }
+  .btn.seg[aria-pressed="true"]:hover { background: var(--text); color: var(--bg); }
+
+  .spec { display: grid; grid-template-columns: 136px 1fr; border-top: 1px solid var(--line); }
+  .spec > * { border-bottom: 1px solid var(--line); padding: 16px 0; display: flex; align-items: center; }
+  .spec > .label { padding-right: 16px; }
+
+  /* Subject list */
+  .list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .srow { display: grid; grid-template-columns: 8px 1fr 72px 72px 64px; gap: 16px; align-items: center; height: 48px; padding: 0 24px; margin: 0 -24px; border-bottom: 1px solid var(--line); transition: background-color var(--t), color var(--t); cursor: pointer; }
+  .srow .num { text-align: right; }
+  .srow .sub { color: var(--muted); font: 11px/16px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; text-align: right; }
+  .srow:hover, .srow.is-hover { background: var(--text); color: var(--bg); }
+  .srow:hover .sub, .srow.is-hover .sub { color: var(--disabled); }
+  .srow.archived { color: var(--disabled); }
+  .srow.archived .sq { opacity: 0.4; }
+  .list-head { display: grid; grid-template-columns: 8px 1fr 72px 72px 64px; gap: 16px; padding: 8px 0; }
+  .list-head span { text-align: right; } .list-head span:nth-child(2) { text-align: left; }
+
+  /* Progress */
+  .bar { height: 4px; background: var(--line); margin-top: 8px; }
+  .bar > i { display: block; height: 100%; background: var(--text); }
+  .stat { font: 500 32px/40px var(--mono); font-variant-numeric: tabular-nums; margin: 8px 0 0; }
+
+  /* Swatches */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .sw { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px; }
+  .sw i { display: block; height: 32px; border: 1px solid var(--line-strong); margin-bottom: 8px; }
+  .sw .label { color: var(--text); }
+  .sw .mono { color: var(--muted); font-size: 11px; line-height: 16px; display: block; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 899px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .side { border-right: 0; border-bottom: 1px solid var(--line); }
+    .brand { padding: 0 16px; }
+    .nav { display: grid; grid-template-columns: repeat(3, 1fr); padding: 0; }
+    .nav li { border-right: 1px solid var(--line); border-top: 1px solid var(--line); }
+    .nav li:nth-child(3n) { border-right: 0; }
+    .nav a { padding: 8px 16px; }
+    .side-foot { display: none; }
+    .head { padding: 0 16px; }
+    .c8, .c4, .c6 { grid-column: span 12; }
+    .cell { border-right: 0; padding: 24px 16px; }
+    .srow { padding: 0 16px; margin: 0 -16px; grid-template-columns: 8px 1fr 64px 56px; }
+    .srow .col-target, .list-head .col-target { display: none; }
+    .list-head { grid-template-columns: 8px 1fr 64px 56px; }
+    .spec { grid-template-columns: 112px 1fr; }
+  }
+  @media (max-width: 599px) {
+    .timer-display { font-size: 64px; line-height: 64px; margin: 24px 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">EDU-TRACKER</div>
+    <nav aria-label="Main">
+      <ul class="nav">
+        <li><a href="#" aria-current="page">Dashboard</a></li>
+        <li><a href="#">History</a></li>
+        <li><a href="#">Subjects</a></li>
+        <li><a href="#">Goals</a></li>
+        <li><a href="#">Stats</a></li>
+        <li><a href="#">Calendar</a></li>
+      </ul>
+    </nav>
+    <div class="side-foot">
+      <p class="label">Synced 14:02</p>
+      <p class="label">2 writes queued</p>
+    </div>
+  </aside>
+
+  <main>
+    <header class="head">
+      <h1>Style sheet</h1>
+      <span class="label">Thu 02 Oct 2026</span>
+    </header>
+
+    <div class="grid">
+      <!-- Timer card, running -->
+      <section class="cell c8 timer running" aria-labelledby="t-l">
+        <div class="cell-head">
+          <h2 class="label" id="t-l"><b>01</b>Timer</h2>
+          <span class="state"><i class="sq"></i>Running</span>
+        </div>
+        <div class="modes" role="group" aria-label="Timer mode">
+          <button class="btn seg" aria-pressed="true">Stopwatch</button>
+          <button class="btn seg" aria-pressed="false">Countdown</button>
+          <button class="btn seg" aria-pressed="false">Pomodoro</button>
+        </div>
+        <div class="timer-display" role="timer" aria-label="Elapsed 1 hour 24 minutes 7 seconds">01:24:07</div>
+        <dl class="timer-meta">
+          <div><dt>Subject</dt><dd class="timer-subject"><i class="sq" style="background:var(--s1)"></i><span style="font-family:var(--sans)">Linear Algebra</span></dd></div>
+          <div><dt>Started</dt><dd>12:38</dd></div>
+          <div><dt>Today</dt><dd>2:41</dd></div>
+        </dl>
+        <div class="row">
+          <button class="btn primary">Pause</button>
+          <button class="btn">Stop</button>
+          <span class="label" style="align-self:center;margin-left:8px">Space pause / S stop</span>
+        </div>
+      </section>
+
+      <!-- Today summary -->
+      <section class="cell c4" aria-labelledby="d-l">
+        <div class="cell-head"><h2 class="label" id="d-l"><b>02</b>Today</h2></div>
+        <p class="label">Today</p>
+        <p class="stat">2:41</p>
+        <div class="bar" aria-hidden="true"><i style="width:67%"></i></div>
+        <p class="label" style="margin-top:8px">67% of 4:00 daily goal</p>
+        <div style="height:24px"></div>
+        <p class="label">This week</p>
+        <p class="stat">11:15</p>
+        <div class="bar" aria-hidden="true"><i style="width:56%"></i></div>
+        <p class="label" style="margin-top:8px">56% of 20:00 weekly goal</p>
+      </section>
+
+      <!-- Subject list -->
+      <section class="cell c6" aria-labelledby="s-l">
+        <div class="cell-head">
+          <h2 class="label" id="s-l"><b>03</b>Subjects</h2>
+          <span class="label">5 active / 1 archived</span>
+        </div>
+        <div class="list-head label">
+          <i></i><span>Name</span><span>Week</span><span class="col-target">Target</span><span></span>
+        </div>
+        <ul class="list">
+          <li class="srow"><i class="sq" style="background:var(--s1)"></i><span>Linear Algebra</span><span class="num">4:30</span><span class="num col-target">6:00</span><span class="sub">Edit</span></li>
+          <li class="srow is-hover"><i class="sq" style="background:var(--s2)"></i><span>Organic Chemistry</span><span class="num">3:05</span><span class="num col-target">5:00</span><span class="sub">Edit</span></li>
+          <li class="srow"><i class="sq" style="background:var(--s3)"></i><span>Economic History</span><span class="num">1:40</span><span class="num col-target">3:00</span><span class="sub">Edit</span></li>
+          <li class="srow"><i class="sq" style="background:var(--s4)"></i><span>German B2</span><span class="num">1:10</span><span class="num col-target">-</span><span class="sub">Edit</span></li>
+          <li class="srow"><i class="sq" style="background:var(--s5)"></i><span>Statistics</span><span class="num">0:50</span><span class="num col-target">2:00</span><span class="sub">Edit</span></li>
+          <li class="srow archived"><i class="sq" style="background:var(--s6)"></i><span>Physics I</span><span class="num">0:00</span><span class="num col-target">-</span><span class="sub" style="color:var(--disabled)">Archived</span></li>
+        </ul>
+      </section>
+
+      <!-- Buttons -->
+      <section class="cell c6" aria-labelledby="b-l">
+        <div class="cell-head"><h2 class="label" id="b-l"><b>04</b>Buttons</h2></div>
+        <div class="spec">
+          <span class="label">Default</span><div><button class="btn">Add subject</button></div>
+          <span class="label">Hover</span><div><button class="btn is-hover">Add subject</button></div>
+          <span class="label">Focus</span><div><button class="btn is-focus">Add subject</button></div>
+          <span class="label">Primary</span><div><button class="btn primary">Start</button></div>
+          <span class="label">Primary hover</span><div><button class="btn primary is-hover">Start</button></div>
+          <span class="label">Disabled</span><div><button class="btn" disabled>Start</button></div>
+        </div>
+      </section>
+
+      <!-- Tokens -->
+      <section class="cell c12" aria-labelledby="k-l">
+        <div class="cell-head"><h2 class="label" id="k-l"><b>05</b>Tokens</h2></div>
+        <div class="swatches">
+          <div class="sw"><i style="background:var(--bg)"></i><span class="label">Background</span><span class="mono">#0C0C0C</span></div>
+          <div class="sw"><i style="background:var(--surface)"></i><span class="label">Surface</span><span class="mono">#131313</span></div>
+          <div class="sw"><i style="background:var(--raised)"></i><span class="label">Raised</span><span class="mono">#1A1A1A</span></div>
+          <div class="sw"><i style="background:var(--line)"></i><span class="label">Line</span><span class="mono">#2B2B2B</span></div>
+          <div class="sw"><i style="background:var(--line-strong)"></i><span class="label">Line strong</span><span class="mono">#3D3D3D</span></div>
+          <div class="sw"><i style="background:var(--text)"></i><span class="label">Text</span><span class="mono">#E9E7E2</span></div>
+          <div class="sw"><i style="background:var(--muted)"></i><span class="label">Muted</span><span class="mono">#8A8883</span></div>
+          <div class="sw"><i style="background:var(--disabled)"></i><span class="label">Disabled</span><span class="mono">#55534F</span></div>
+          <div class="sw"><i style="background:var(--accent)"></i><span class="label">Accent</span><span class="mono">#FF5A1F</span></div>
+          <div class="sw"><i style="background:var(--s1)"></i><span class="label">Subject 1</span><span class="mono">#7D8CA3</span></div>
+          <div class="sw"><i style="background:var(--s2)"></i><span class="label">Subject 2</span><span class="mono">#869777</span></div>
+          <div class="sw"><i style="background:var(--s3)"></i><span class="label">Subject 3</span><span class="mono">#A3866F</span></div>
+          <div class="sw"><i style="background:var(--s4)"></i><span class="label">Subject 4</span><span class="mono">#9A8298</span></div>
+          <div class="sw"><i style="background:var(--s5)"></i><span class="label">Subject 5</span><span class="mono">#6E9895</span></div>
+          <div class="sw"><i style="background:var(--s6)"></i><span class="label">Subject 6</span><span class="mono">#A39766</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

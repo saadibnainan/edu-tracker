@@ -1,0 +1,368 @@
+@import 'tailwindcss';
+
+/* Tokens from STYLE.md. Dark only. */
+@theme {
+  --color-bg: #0c0c0c;
+  --color-surface: #131313;
+  --color-raised: #1a1a1a;
+  --color-line: #2b2b2b;
+  --color-line-strong: #3d3d3d;
+  --color-text: #e9e7e2;
+  --color-muted: #8a8883;
+  --color-disabled: #55534f;
+  --color-accent: #ff5a1f;
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --t: 120ms linear;
+  }
+  *,
+  *::before,
+  *::after {
+    border-radius: 0;
+  }
+  html,
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+  body {
+    font: 400 14px/24px var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-text);
+    color: var(--color-bg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  .mono,
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* "01 TIMER" section labels and all small mono captions */
+  .label {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    line-height: 16px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+  .label b {
+    color: var(--color-text);
+    font-weight: 400;
+    margin-right: 8px;
+  }
+
+  .cell {
+    position: relative;
+    min-width: 0;
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-line);
+    border-bottom: 1px solid var(--color-line);
+    padding: 24px;
+  }
+  .cell-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    font: 500 11px/16px var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-line-strong);
+    cursor: pointer;
+    transition:
+      background-color var(--t),
+      color var(--t),
+      border-color var(--t);
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--color-text);
+    color: var(--color-bg);
+    border-color: var(--color-text);
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-bg);
+    border-color: var(--color-accent);
+  }
+  .btn-sm {
+    height: 32px;
+    padding: 0 8px;
+  }
+  .btn:disabled {
+    background: var(--color-surface);
+    color: var(--color-disabled);
+    border-color: var(--color-line);
+    cursor: not-allowed;
+  }
+
+  /* Text-only action inside a row; inherits the row's inverted colors. */
+  .link-action {
+    font: 400 11px/16px var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    transition: color var(--t);
+  }
+  .link-action:hover {
+    color: var(--color-text);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .seg {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    border: 1px solid var(--color-line-strong);
+  }
+  .seg > button {
+    position: relative;
+    height: 40px;
+    padding: 0 16px;
+    font: 500 11px/16px var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--color-text);
+    border: 0;
+    cursor: pointer;
+    transition:
+      background-color var(--t),
+      color var(--t);
+  }
+  .seg > button + button {
+    border-left: 1px solid var(--color-line-strong);
+  }
+  .seg > button[aria-pressed='true'] {
+    background: var(--color-raised);
+  }
+  .seg > button[aria-pressed='true']::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--color-accent);
+  }
+  .seg > button:hover:not(:disabled) {
+    background: var(--color-text);
+    color: var(--color-bg);
+  }
+  .seg > button:disabled {
+    color: var(--color-disabled);
+    cursor: not-allowed;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .input {
+    height: 40px;
+    width: 100%;
+    padding: 0 16px;
+    background: var(--color-raised);
+    color: var(--color-text);
+    border: 1px solid var(--color-line-strong);
+    font: 400 14px/24px var(--font-sans);
+    transition: border-color var(--t);
+  }
+  .input.mono {
+    font-family: var(--font-mono);
+  }
+  .input:hover {
+    border-color: var(--color-muted);
+  }
+  .input::placeholder {
+    color: var(--color-muted);
+  }
+  textarea.input {
+    height: auto;
+    min-height: 96px;
+    padding: 8px 16px;
+    resize: vertical;
+  }
+  select.input {
+    appearance: none;
+    padding-right: 40px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238A8883' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-position: calc(100% - 16px) 50%;
+    background-size: 10px 6px;
+    background-repeat: no-repeat;
+  }
+  .input[type='date']::-webkit-calendar-picker-indicator,
+  .input[type='datetime-local']::-webkit-calendar-picker-indicator {
+    filter: invert(0.9);
+  }
+
+  .sq {
+    display: inline-block;
+    flex: none;
+    width: 8px;
+    height: 8px;
+  }
+
+  /* Rows that invert on hover. Secondary text maps to the disabled token (6.21:1). */
+  .row-inv {
+    transition:
+      background-color var(--t),
+      color var(--t);
+  }
+  .row-inv:hover,
+  .row-inv:focus-within {
+    background: var(--color-text);
+    color: var(--color-bg);
+  }
+  .row-inv:hover .label,
+  .row-inv:hover .link-action,
+  .row-inv:focus-within .label,
+  .row-inv:focus-within .link-action {
+    color: var(--color-disabled);
+  }
+  .row-inv:hover .link-action:hover,
+  .row-inv:focus-within .link-action:hover {
+    color: var(--color-bg);
+  }
+  .row-inv.is-off {
+    color: var(--color-disabled);
+  }
+  .row-inv.is-off:hover {
+    color: var(--color-bg);
+  }
+
+  .bar {
+    height: 4px;
+    background: var(--color-line);
+    overflow: hidden;
+  }
+  .bar > i {
+    display: block;
+    height: 100%;
+    background: var(--color-text);
+  }
+
+  .nav-link {
+    position: relative;
+    display: block;
+    padding: 8px 24px;
+    color: var(--color-muted);
+    text-decoration: none;
+    transition:
+      background-color var(--t),
+      color var(--t);
+  }
+  .nav-link:hover {
+    background: var(--color-text);
+    color: var(--color-bg);
+  }
+  .nav-link[aria-current='page'] {
+    color: var(--color-text);
+  }
+  .nav-link[aria-current='page']:hover {
+    color: var(--color-bg);
+  }
+  .nav-link[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--color-accent);
+  }
+
+  .running-bar::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: var(--color-accent);
+  }
+
+  .timer-display {
+    font: 500 96px/96px var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  @media (max-width: 599px) {
+    .timer-display {
+      font-size: 64px;
+      line-height: 64px;
+    }
+  }
+
+  .msg {
+    font: 400 11px/16px var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .msg-error {
+    color: var(--color-text);
+  }
+  .msg-error::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    background: var(--color-text);
+    vertical-align: 0;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
