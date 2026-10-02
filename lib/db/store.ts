@@ -2,10 +2,9 @@
 //
 // Reads come from memory (loaded from IndexedDB). Writes go to memory and
 // IndexedDB immediately, plus an outbox entry. The sync engine pushes the
-// outbox to Supabase and pulls the user's rows back. Postgres resolves
+// outbox to /api/sync and pulls the user's rows back. Postgres resolves
 // conflicts last-write-wins on updated_at (see the lww_guard trigger).
 
-import { supabaseBrowser } from '@/lib/supabase/client'
 import { TABLES, type CalendarSource, type Exam, type Goal, type RowOf, type Session, type Subject, type TableName } from '@/lib/types'
 import { ackOutbox, clearAll, getAll, getOne, markOutboxError, openDb, putMany, putOne, putWithOutbox, type OutboxEntry } from './idb'
 
@@ -40,7 +39,6 @@ const EMPTY: Snapshot = {
   sync: { online: true, syncing: false, queued: 0, failed: 0, lastSyncedAt: null, error: null },
 }
 
-const PAGE = 1000
 const CHUNK = 200
 const INTERVAL_MS = 30_000
 const MAX_BACKOFF_MS = 60_000
@@ -223,49 +221,56 @@ export async function update<T extends TableName>(table: T, id: string, patch: P
   return save(table, { ...existing, ...patch, id } as never)
 }
 
-function isTransient(status: number, code: string | undefined): boolean {
-  if (status === 0 || !code) return true
-  return status === 401 || status === 408 || status === 429 || status >= 500
+class TransientError extends Error {}
+
+interface RowResult {
+  id: string | null
+  ok: boolean
+  error?: string
+}
+
+async function api<T>(init?: RequestInit): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch('/api/sync', { cache: 'no-store', ...init })
+  } catch {
+    throw new TransientError('Network error')
+  }
+  // 401 (expired session), 429 and 5xx are worth retrying later; other errors are bugs.
+  if (!res.ok) throw new TransientError(`Sync failed (${res.status})`)
+  return (await res.json()) as T
 }
 
 async function flush() {
-  const supabase = supabaseBrowser()
   const entries = (await getAll<OutboxEntry>('outbox')).filter((e) => !e.error)
   for (const table of TABLES) {
     const batch = entries.filter((e) => e.table === table).sort((a, b) => a.seq - b.seq)
     for (let i = 0; i < batch.length; i += CHUNK) {
       const chunk = batch.slice(i, i + CHUNK)
-      const { error, status } = await supabase.from(table).upsert(chunk.map((e) => e.row) as never, { onConflict: 'id' })
-      if (!error) {
-        await ackOutbox(chunk)
-        continue
-      }
-      if (isTransient(status, error.code)) throw new Error(error.message || 'Network error')
-      // Isolate the rows the server rejects so the rest still sync.
+      const { results } = await api<{ results: RowResult[] }>({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table, rows: chunk.map((e) => e.row) }),
+      })
+      const byId = new Map(results.map((r) => [r.id, r]))
+      const acked: OutboxEntry[] = []
       for (const e of chunk) {
-        const r = await supabase.from(table).upsert([e.row] as never, { onConflict: 'id' })
-        if (!r.error) await ackOutbox([e])
-        else if (isTransient(r.status, r.error.code)) throw new Error(r.error.message || 'Network error')
-        else await markOutboxError(e, r.error.message)
+        const r = byId.get(e.id)
+        if (r?.ok) acked.push(e)
+        else await markOutboxError(e, r?.error ?? 'Rejected by the server')
       }
+      await ackOutbox(acked)
     }
   }
 }
 
 async function pull() {
-  const supabase = supabaseBrowser()
   const pending = new Set((await getAll<OutboxEntry>('outbox')).map((e) => e.key))
+  const data = await api<Record<TableName, AnyRow[]>>()
   let changedAny = false
   for (const table of TABLES) {
-    const remote: AnyRow[] = []
-    for (let from = 0; ; from += PAGE) {
-      const { data, error, status } = await supabase.from(table).select('*').order('id').range(from, from + PAGE - 1)
-      if (error) throw Object.assign(new Error(error.message), { status })
-      remote.push(...(data as AnyRow[]))
-      if (data.length < PAGE) break
-    }
     const changed: AnyRow[] = []
-    for (const r of remote) {
+    for (const r of data[table] ?? []) {
       if (pending.has(`${table}:${r.id}`)) continue
       const local = tables[table].get(r.id)
       if (!local || ts(r.updated_at) > ts(local.updated_at) || (ts(r.updated_at) === ts(local.updated_at) && JSON.stringify(r) !== JSON.stringify(local))) {

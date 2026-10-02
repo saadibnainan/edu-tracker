@@ -1,79 +1,83 @@
 import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { anon, userClient } from './supabase'
+import { asUser, createUser, pool, tryAs } from './db'
+
+// Runs SQL exactly as the app's route handlers do (SET LOCAL ROLE app_user +
+// app.user_id), so these tests exercise the real policies.
 
 test.describe('row level security', () => {
   test('users only reach their own rows', async () => {
-    const a = await userClient('rls-a@example.test')
-    const b = await userClient('rls-b@example.test')
+    const a = await createUser('rls-a@example.test')
+    const b = await createUser('rls-b@example.test')
     const subjectId = randomUUID()
 
-    const insert = await a.client.from('subjects').insert({ id: subjectId, name: 'A private', color_index: 1 })
-    expect(insert.error).toBeNull()
+    const insert = await tryAs(a, 'insert into subjects (id, user_id, name, color_index) values ($1, $2, $3, 1)', [subjectId, a, 'A private'])
+    expect(insert.code).toBeUndefined()
 
     // B cannot see, update, or delete A's subject.
-    const read = await b.client.from('subjects').select('*').eq('id', subjectId)
-    expect(read.data).toEqual([])
-    const upd = await b.client.from('subjects').update({ name: 'hijacked' }).eq('id', subjectId).select()
-    expect(upd.data).toEqual([])
-    const del = await b.client.from('subjects').delete().eq('id', subjectId)
-    expect(del.error?.code).toBe('42501')
+    expect((await tryAs(b, 'select * from subjects where id = $1', [subjectId])).rows).toEqual([])
+    expect((await tryAs(b, "update subjects set name = 'hijacked' where id = $1 returning id", [subjectId])).rows).toEqual([])
+    expect((await tryAs(b, 'delete from subjects where id = $1', [subjectId])).code).toBe('42501')
 
     // B cannot insert a row claiming to be A.
-    const forged = await b.client.from('subjects').insert({ id: randomUUID(), user_id: a.id, name: 'forged', color_index: 0 })
-    expect(forged.error?.code).toBe('42501')
+    expect((await tryAs(b, 'insert into subjects (id, user_id, name, color_index) values ($1, $2, $3, 0)', [randomUUID(), a, 'forged'])).code).toBe('42501')
+
+    // B cannot overwrite A's row through an upsert on the same id.
+    const upsert = await tryAs(b, "insert into subjects (id, user_id, name, color_index) values ($1, $2, 'stolen', 0) on conflict (id) do update set name = excluded.name", [subjectId, b])
+    expect(upsert.code).toBe('42501')
 
     // B cannot attach a session to A's subject (composite foreign key).
-    const cross = await b.client.from('sessions').insert({
-      id: randomUUID(),
-      subject_id: subjectId,
-      started_at: new Date(Date.now() - 3600_000).toISOString(),
-      ended_at: new Date().toISOString(),
-      duration_seconds: 3600,
-      kind: 'manual',
-    })
-    expect(cross.error?.code).toBe('23503')
+    const cross = await tryAs(
+      b,
+      "insert into sessions (id, user_id, subject_id, started_at, ended_at, duration_seconds, kind) values ($1, $2, $3, now() - interval '1 hour', now(), 3600, 'manual')",
+      [randomUUID(), b, subjectId],
+    )
+    expect(cross.code).toBe('23503')
 
     // Even the owner cannot hard delete; archive instead.
-    const ownDelete = await a.client.from('subjects').delete().eq('id', subjectId)
-    expect(ownDelete.error?.code).toBe('42501')
+    expect((await tryAs(a, 'delete from subjects where id = $1', [subjectId])).code).toBe('42501')
 
-    // Anonymous requests see nothing.
-    const anonRead = await anon().from('subjects').select('*')
-    expect(anonRead.error?.code ?? 'no-rows').toMatch(/42501|no-rows/)
-    expect(anonRead.data ?? []).toEqual([])
+    // Without a user id set, nothing is visible.
+    expect((await tryAs(null, 'select * from subjects')).rows).toEqual([])
 
     // A still sees the untouched row.
-    const own = await a.client.from('subjects').select('name').eq('id', subjectId).single()
-    expect(own.data?.name).toBe('A private')
+    expect((await tryAs(a, 'select name from subjects where id = $1', [subjectId])).rows).toEqual([{ name: 'A private' }])
   })
 
-  test('every table has RLS enabled', async () => {
-    const a = await userClient('rls-c@example.test')
-    for (const table of ['subjects', 'sessions', 'goals', 'exams', 'calendar_sources'] as const) {
-      const { data, error } = await anon().from(table).select('id').limit(1)
-      expect(error === null ? data : []).toEqual([])
-      const own = await a.client.from(table).select('id')
-      expect(own.error).toBeNull()
-    }
+  test('every app table has RLS enabled with policies, and app_user cannot bypass it', async () => {
+    const { rows } = await pool.query<{ relname: string; relrowsecurity: boolean; policies: string }>(
+      `select c.relname, c.relrowsecurity, count(p.polname)::text as policies
+       from pg_class c left join pg_policy p on p.polrelid = c.oid
+       where c.relnamespace = 'public'::regnamespace and c.relname in ('subjects','sessions','goals','exams','calendar_sources')
+       group by c.relname, c.relrowsecurity order by c.relname`,
+    )
+    expect(rows).toEqual(
+      ['calendar_sources', 'exams', 'goals', 'sessions', 'subjects'].map((relname) => ({ relname, relrowsecurity: true, policies: '3' })),
+    )
+    const role = await pool.query<{ rolbypassrls: boolean; rolsuper: boolean; rolcanlogin: boolean }>("select rolbypassrls, rolsuper, rolcanlogin from pg_roles where rolname = 'app_user'")
+    expect(role.rows).toEqual([{ rolbypassrls: false, rolsuper: false, rolcanlogin: false }])
+    // app_user has no access to Better Auth's tables.
+    const a = await createUser('rls-c@example.test')
+    expect((await tryAs(a, 'select * from "user"')).code).toBe('42501')
+    expect((await tryAs(a, 'select * from session')).code).toBe('42501')
   })
 
   test('last write wins on updated_at, stale writes are ignored', async () => {
-    const a = await userClient('lww@example.test')
+    const a = await createUser('lww@example.test')
     const id = randomUUID()
     const t1 = new Date(Date.now() - 60_000).toISOString()
     const t2 = new Date(Date.now() - 30_000).toISOString()
-    await a.client.from('subjects').upsert({ id, name: 'v1', color_index: 0, updated_at: t1 })
-    await a.client.from('subjects').upsert({ id, name: 'v2 newer', color_index: 0, updated_at: t2 })
-    const stale = await a.client.from('subjects').upsert({ id, name: 'v0 stale', color_index: 0, updated_at: t1 })
-    expect(stale.error).toBeNull()
-    const row = await a.client.from('subjects').select('name, updated_at').eq('id', id).single()
-    expect(row.data?.name).toBe('v2 newer')
+    const upsert = "insert into subjects (id, user_id, name, color_index, updated_at) values ($1, $2, $3, 0, $4) on conflict (id) do update set name = excluded.name, updated_at = excluded.updated_at"
+    await asUser(a, async (c) => {
+      await c.query(upsert, [id, a, 'v1', t1])
+      await c.query(upsert, [id, a, 'v2 newer', t2])
+      await c.query(upsert, [id, a, 'v0 stale', t1])
+      expect((await c.query('select name from subjects where id = $1', [id])).rows).toEqual([{ name: 'v2 newer' }])
 
-    // A device clock far in the future is clamped to server time.
-    const future = new Date(Date.now() + 86_400_000).toISOString()
-    await a.client.from('subjects').upsert({ id, name: 'future clock', color_index: 0, updated_at: future })
-    const clamped = await a.client.from('subjects').select('updated_at').eq('id', id).single()
-    expect(new Date(clamped.data!.updated_at).getTime()).toBeLessThan(Date.now() + 60_000)
+      // A device clock far in the future is clamped to server time.
+      await c.query(upsert, [id, a, 'future clock', new Date(Date.now() + 86_400_000).toISOString()])
+      const r = await c.query<{ updated_at: Date }>('select updated_at from subjects where id = $1', [id])
+      expect(r.rows[0]!.updated_at.getTime()).toBeLessThan(Date.now() + 60_000)
+    })
   })
 })

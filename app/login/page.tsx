@@ -1,9 +1,12 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { currentUser } from '@/lib/server/session'
 import { LoginForm } from './LoginForm'
 
 export const metadata: Metadata = { title: 'Sign in' }
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+  if (await currentUser()) redirect('/')
   const { error } = await searchParams
   return (
     <main className="min-h-dvh grid place-items-center p-4">
@@ -14,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <b>01</b>
             <span className="sr-only"> </span>Sign in
           </h1>
-          <LoginForm linkError={error === 'link'} />
+          <LoginForm linkError={Boolean(error)} />
         </div>
       </div>
     </main>

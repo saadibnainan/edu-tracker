@@ -1,13 +1,14 @@
 # EDU-Tracker plan
 
-Study tracker. Next.js App Router + TypeScript strict + Tailwind CSS + Supabase (Postgres, Auth, RLS). Deployed on Vercel. Multi-user, email magic link, data synced across devices, works offline. Visual rules live in `STYLE.md`.
+Study tracker. Next.js App Router + TypeScript strict + Tailwind CSS + Neon Postgres (via the Vercel Marketplace) + Better Auth + Resend. Deployed on Vercel. Switched from Supabase at your request after phase 6; the Supabase files and packages were removed. Multi-user, email magic link, data synced across devices, works offline. Visual rules live in `STYLE.md`.
 
 ## 1. Decisions
 
 | Topic | Decision |
 |---|---|
-| Users | Multi-user. Anyone can sign in with a magic link. Every row carries `user_id`. RLS restricts each user to their own rows. |
-| Data flow | Offline-first. UI reads and writes a local IndexedDB store. A sync engine pushes an outbox to Supabase and pulls remote rows. Server components only do the auth gate and the shell. |
+| Users | Multi-user. Anyone can sign in with a magic link (Better Auth magic-link plugin, emails via Resend). Every row carries `user_id`. RLS restricts each user to their own rows. |
+| Data flow | Offline-first. UI reads and writes a local IndexedDB store. A sync engine pushes an outbox to `/api/sync` and pulls remote rows from it. The browser never talks to the database directly. Server components only do the auth gate and the shell. |
+| Database access | Route handlers use `pg` with a small pool. Every data query runs in a transaction that does `SET LOCAL ROLE app_user` and sets `app.user_id`, so Postgres RLS applies even on Neon, where the connection role can bypass RLS. |
 | Conflicts | Last write wins on `updated_at`, enforced in Postgres by a trigger. |
 | Time zone | All timestamps stored as `timestamptz` (UTC). Day and week boundaries computed in the browser's local zone. Weeks start Monday (ISO 8601). |
 | Streak | A day counts when its total is at least 30 minutes. The streak is the run of consecutive counting days ending today, or ending yesterday if today has not reached 30 minutes yet. |
@@ -25,8 +26,9 @@ Checked on 2026-10-02 against the npm registry (`npm view <pkg> version`) and th
 | react, react-dom | 19.3.0 | npm |
 | typescript | 7.0.2 as `tsc` (`@typescript/native`), 6.0.2 API as `typescript` | Resolved. Next 16.3.8 runs the project-local `tsc` CLI and supports TS 7 (bundled docs, `useTypeScriptCli`). typescript-eslint cannot load TS 7 ("does not support TS 7.0"), so per the TypeScript 7 announcement the TS 6 API is installed side by side: `"@typescript/native": "npm:typescript@7.0.2"`, `"typescript": "npm:@typescript/typescript6@6.0.2"`. |
 | tailwindcss, @tailwindcss/postcss, postcss | 4.3.3 | tailwindcss.com Next guide: `npm install tailwindcss @tailwindcss/postcss postcss`, `postcss.config.mjs` with `"@tailwindcss/postcss"`, `@import "tailwindcss";` |
-| @supabase/supabase-js | 2.117.2 | npm |
-| @supabase/ssr | 0.12.7 | Supabase Next guide: browser + server clients, `proxy.ts`, `getClaims()` |
+| better-auth | 1.7.7 | better-auth.com docs: `toNextJsHandler`, `nextCookies()`, `getSessionCookie` for `proxy.ts`, magic-link plugin, `pg` Pool as database. Schema generated with `npx auth@1.7.7 generate`. |
+| resend | 6.32.0 | npm. Sends the magic-link email in production. |
+| pg, @types/pg | 8.23.1 | npm. Plain Postgres driver: talks to Neon in production and to Docker Postgres locally without Neon's local proxy. |
 | lucide-react | 1.49.0 | npm |
 | chart.js | 4.5.1 | npm |
 | eslint, eslint-config-next | 9.39.5, 16.3.8 | ESLint 10.11.0 crashes in eslint-plugin-react 7.37.5 (bundled by eslint-config-next; peer range ends at ESLint 9.7+, `context.getFilename is not a function`). Pinned to the newest 9.x. `npm run lint` calls `eslint` directly. |
@@ -40,13 +42,13 @@ Framework facts confirmed in the Next 16.3.8 docs:
 
 ## 3. Dependencies
 
-Named in the spec, so installed without asking: next, react, react-dom, typescript, tailwindcss (+ @tailwindcss/postcss, postcss), @supabase/supabase-js, @supabase/ssr, lucide-react, chart.js, eslint + eslint-config-next (the linter the spec requires), vitest, @playwright/test.
+Named in the spec, so installed without asking: next, react, react-dom, typescript, tailwindcss (+ @tailwindcss/postcss, postcss), lucide-react, chart.js, eslint + eslint-config-next (the linter the spec requires), vitest, @playwright/test.
 
 **Approved by you after phase 1** (not named in the spec):
 
 | Package | Why | Alternative if declined |
 |---|---|---|
-| `supabase` CLI 2.119.0 (dev dep, approved) | Local Supabase stack in Docker (Docker 29.8.1 is running here) to run migrations, test RLS, and Playwright-screenshot signed-in screens without touching any remote project. | Screenshots of signed-in screens would need a mock auth mode, which is extra code. Not recommended. |
+| `better-auth`, `resend`, `pg` (approved with the switch to Neon) | Auth with magic links, email delivery, Postgres driver. | Neon Auth (managed Better Auth): magic-link support could not be confirmed in its docs. |
 | `ical.js` 2.2.1 (approved) | Correct RRULE, EXDATE and VTIMEZONE expansion. University timetables are almost all recurring events. | Hand-written parser covering VEVENT, DTSTART/DTEND, simple weekly RRULE. Will miss edge cases. |
 
 Deliberately **not** added: no PWA plugin (hand-written `public/sw.js`), no `idb` wrapper (raw IndexedDB), no component library, no date library (Intl + small helpers), no state library.
@@ -70,25 +72,27 @@ app/
     stats/page.tsx
     calendar/page.tsx
   login/page.tsx
-  auth/confirm/route.ts    magic-link verification (path confirmed against Supabase docs in phase 2)
+  api/auth/[...all]/route.ts  Better Auth (magic link send + verify, session, sign-out)
+  api/sync/route.ts        GET all of the user's rows, POST outbox batches
   api/ics/route.ts         server-side .ics fetch + parse
 components/                cells, buttons, timer, list rows, chart wrapper
 lib/
-  supabase/{client,server}.ts
+  auth.ts, auth-client.ts  Better Auth server config and browser client
+  server/                  pg pool + asUser(), session helper, mailer, row validation
   db/                      IndexedDB store, outbox, sync engine
   timer/                   pure elapsed-time math, pomodoro state machine
   stats/                   totals, per-subject, daily series, streak
   ics/                     parse + expand to week, SSRF guard
   format.ts                H:MM, HH:MM:SS
-proxy.ts                   session refresh + redirect to /login
+proxy.ts                   redirect to /login when there is no session cookie
 public/
   sw.js                    service worker
   icons/                   icon-192.png, icon-512.png, icon-maskable-512.png (generated)
 scripts/
   build-icons.mjs          `npm run icons`: SVG -> all rasters + ICO
-supabase/
-  config.toml              local stack only
-  migrations/              timestamped SQL files
+db/migrations/             0001_auth.sql (Better Auth), 0002_app.sql (app tables, role, RLS)
+scripts/migrate.mjs        `npm run db:migrate`
+compose.yaml               local Postgres 17 + Mailpit
 tests/
   unit/                    Vitest
   e2e/                     Playwright (screenshots, reload check, icon 200 checks)
@@ -98,7 +102,7 @@ design/                    contrast script, mockups, favicon concepts and source
 
 ## 5. Schema
 
-Every table: `id uuid primary key` (generated on the client so offline rows have stable ids, `default gen_random_uuid()` as fallback), `user_id uuid not null default auth.uid() references auth.users on delete cascade`, `created_at timestamptz not null default now()`, `updated_at timestamptz not null default now()`.
+Every table: `id uuid primary key` (generated on the client so offline rows have stable ids, `default gen_random_uuid()` as fallback), `user_id text not null default current_app_user() references "user" (id) on delete cascade` (Better Auth user ids are text), `created_at timestamptz not null default now()`, `updated_at timestamptz not null default now()`.
 
 ```
 subjects
@@ -152,9 +156,9 @@ Notes:
 - if `NEW.updated_at > now() + interval '5 minutes'`, clamp to `now()` so one device with a fast clock cannot win every future conflict;
 - `NEW.user_id` and `NEW.created_at` are forced to the old values.
 
-**RLS**, enabled on all 5 tables. For each: `select`, `insert`, `update` policies with `using (user_id = (select auth.uid()))` and `with check (user_id = (select auth.uid()))`, granted to `authenticated` only. No `delete` policy. `anon` has no access.
+**RLS**, enabled on all 5 tables. Role `app_user` (NOLOGIN, no BYPASSRLS) gets select, insert, update on the five tables and nothing on Better Auth's tables. For each table: `select`, `insert`, `update` policies `to app_user` with `using (user_id = current_app_user())` and `with check (user_id = current_app_user())`, where `current_app_user()` reads the transaction-local `app.user_id`. No delete grant or policy. Without `app.user_id` set, nothing is visible.
 
-Migrations: `supabase/migrations/<timestamp>_init.sql`. Applied only to the local Docker stack. Never applied to a remote project by me.
+Migrations: `db/migrations/*.sql`, applied by `npm run db:migrate` (tracked in `_migrations`). Applied only to the local Docker database by me; you run it against Neon.
 
 ## 6. Routes
 
@@ -167,11 +171,12 @@ Migrations: `supabase/migrations/<timestamp>_init.sql`. Applied only to the loca
 | `/stats` | page | today / week / month totals, per-subject breakdown, daily bar chart, streak |
 | `/calendar` | page | ICS URLs, this week's schedule, exams list and entry |
 | `/login` | page | email field, "Send link" |
-| `/auth/confirm` | route handler | verifies the magic link, sets cookies, redirects to `/` |
+| `/api/auth/*` | route handler | Better Auth: `/sign-in/magic-link`, `/magic-link/verify`, `/get-session`, `/sign-out` |
+| `/api/sync` | route handler | GET: the user's rows per table. POST `{ table, rows }`: per-row upsert in savepoints, returns per-row results. Same-origin only. |
 | `/api/ics?source=<id>` | route handler | fetch + parse, see section 9 |
 | `/manifest.webmanifest`, `/icon.svg`, `/favicon.ico`, `/apple-icon.png`, `/icons/*` | static/metadata | icons and manifest |
 
-`proxy.ts` refreshes the Supabase session (per Supabase guide, `getClaims()`) and redirects signed-out requests to `/login`. Its matcher excludes `_next/static`, `_next/image`, icons, manifest and `sw.js`. Route handlers and server code check auth again themselves, as the Next docs recommend.
+`proxy.ts` redirects requests without a session cookie to `/login` (`getSessionCookie`, an optimistic check). Its matcher excludes `/api/`, `_next/static`, `_next/image`, icons, manifest and `sw.js`. The app layout and every route handler verify the session with `auth.api.getSession`. Route handlers and server code check auth again themselves, as the Next docs recommend.
 
 ## 7. Timer and pomodoro
 
@@ -203,12 +208,12 @@ Running timer state lives in `localStorage` (per device), so it survives refresh
 UI ──write──> IndexedDB table store ──> outbox (seq, table, id, row)
  ^                                            │ flush: online, visibilitychange,
  │                                            │ app start, every 30 s, after each write
- └──read── IndexedDB <──pull── Supabase <─────┘ upsert(rows, onConflict: id)
+ └──read── IndexedDB <──pull── /api/sync <────┘ POST { table, rows } -> per-row results
 ```
 
 - IndexedDB database `edu-tracker`, stores: `subjects`, `sessions`, `goals`, `exams`, `calendar_sources`, `outbox`, `meta`, `ics_cache`.
 - Every write sets `updated_at = new Date().toISOString()`, puts the row locally, appends to the outbox (coalesced per `table + id`), then tries to flush.
-- Flush: per table, batch `upsert`. Success removes those outbox entries. Network errors back off exponentially (2 s to 60 s). 4xx errors (RLS, constraint) move the entry to a `failed` list shown in the sidebar footer ("1 write failed").
+- Flush: per table, batches of up to 200 rows to `POST /api/sync`. Rows the server stored leave the outbox; rows it rejected (RLS, constraint, validation) move to a `failed` list shown in the sidebar footer ("1 write failed"). Network errors, 401, 429 and 5xx back off exponentially (2 s to 60 s).
 - Pull after every successful flush and on reconnect: fetch all of the user's rows per table (expected volume is a few thousand rows per year) and replace local rows unless the local row has a pending outbox entry, or has a newer `updated_at`. A full pull avoids missing rows that another device wrote with an older client clock.
 - `navigator.locks.request('edu-sync')` ensures only one tab flushes at a time. `BroadcastChannel('edu-sync')` tells other tabs to re-read.
 - Sign-out clears IndexedDB and localStorage so the next account starts clean.
@@ -218,15 +223,15 @@ UI ──write──> IndexedDB table store ──> outbox (seq, table, id, row)
 - `/_next/static/*`: cache-first (file names are content-hashed).
 - Navigations: network-first with a 3 s timeout, falling back to the last cached HTML for that route, then to the cached `/`.
 - Icons, manifest, fonts: stale-while-revalidate.
-- Supabase and `/api/*`: never cached by the SW (data goes through IndexedDB).
+- `/api/*`: never cached by the SW (data goes through IndexedDB).
 - After sign-in, the page posts the route list to the SW, which fetches each route's HTML and caches the `/_next/static` assets it references, so pages never visited online still open offline.
 - Cache name carries a version; `activate` deletes old caches.
 
 ## 9. Calendar (.ics) route handler
 
 `GET /api/ics?source=<uuid>`, Node runtime:
-1. `getClaims()`; 401 if signed out.
-2. Load the `calendar_sources` row through the user's Supabase client (RLS applies). 404 if missing.
+1. `auth.api.getSession`; 401 if signed out.
+2. Load the `calendar_sources` row inside `asUser()` (RLS applies). 404 if missing or another user's.
 3. SSRF guard: only `https:`; resolve DNS and reject loopback, private, link-local, CGNAT and metadata ranges (IPv4 and IPv6); follow at most 3 redirects manually, re-checking each hop.
 4. Fetch with 8 s timeout and 2 MB cap; require `BEGIN:VCALENDAR`.
 5. Parse and expand recurring events into the current Monday to Sunday window in the user's zone (zone passed as `tz` query param).
@@ -246,12 +251,12 @@ The client caches the last response in `ics_cache` so the week view works offlin
 
 - `npm run build`, `npm run lint`, `npm run typecheck` (`tsc --noEmit`), `npm test` (Vitest). Real output quoted in each report.
 - Unit tests: elapsed-time math (pause/resume, refresh mid-segment, countdown clamp), streak (gaps, 30-minute threshold, today not yet met, midnight-spanning sessions, DST change), ICS parsing (fixtures with RRULE, EXDATE, all-day, TZID).
-- Playwright against `next start` + local Supabase: screenshot every screen at 375 and 1440, view them, compare to `STYLE.md`. Reload test: start timer, wait, reload, assert displayed time ≥ elapsed.
+- Playwright against `next start` + local Postgres and Mailpit (compose.yaml): screenshot every screen at 375 and 1440, view them, compare to `STYLE.md`. Reload test: start timer, wait, reload, assert displayed time ≥ elapsed.
 - From phase 2: `curl -I` every icon path and the manifest (HTTP 200), manifest JSON validated against required fields.
 
 ## 12. Risks and open questions
 
-1. **Approvals**: `supabase` CLI and `ical.js` approved after phase 1.
+1. **Approvals**: `ical.js` approved after phase 1; `better-auth`, `resend`, `pg` approved with the switch to Neon. The `supabase` CLI and `@supabase/*` packages were removed.
 2. **TypeScript 7**: resolved, see section 2. Revisit when typescript-eslint supports TS 7 (then drop the TS 6 alias).
 3. **Session deletion**: resolved. Sessions have a `deleted_at` tombstone (approved after phase 1). Delete in History asks for confirmation.
 4. **Pomodoro settings and the running timer are per device**, not synced, because they are not in the five tables. A timer started on the laptop does not appear on the phone until it is stopped and saved.
@@ -261,6 +266,8 @@ The client caches the last response in `ics_cache` so the week view works offlin
 8. **Clock skew** between devices can make last-write-wins pick the older edit; the 5-minute future clamp limits the damage.
 9. **Magic links on iOS PWA** open in Safari, not in the installed app; the session cookie is then not shared with the standalone app. The user may need to sign in from inside the installed app once. Known iOS platform limit.
 10. **Disabled text** contrast is below 4.5:1 by design (exempt), see `STYLE.md`.
+11. **Rate limits** live in the `rateLimit` table (serverless instances share no memory): 20 magic-link requests and 60 verifications per minute per IP.
+12. **Connection pooling**: use Neon's pooled `DATABASE_URL` at runtime; `SET LOCAL` keeps the per-transaction role safe behind a transaction-mode pooler. Migrations use `DATABASE_URL_UNPOOLED`.
 
 ## 13. Phases
 
@@ -271,4 +278,4 @@ The client caches the last response in `ics_cache` so the week view works offlin
 5. .ics import, exams, PWA and offline sync.
 6. Vercel config, README with setup steps and env var names only.
 
-Env var names (`.env.example`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. The planned `NEXT_PUBLIC_SITE_URL` was dropped: the magic-link redirect uses `window.location.origin`, which also works on preview deployments.
+Env var names (`.env.example`): `DATABASE_URL`, `DATABASE_URL_UNPOOLED` (both set by the Vercel Neon integration), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (optional on Vercel), `RESEND_API_KEY`, `EMAIL_FROM`, and `MAILPIT_URL` for local development only.

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/shell/AppShell'
-import { currentUser } from '@/lib/supabase/server'
+import { currentUser } from '@/lib/server/session'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser()

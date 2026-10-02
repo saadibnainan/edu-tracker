@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { resetStore } from '@/lib/db/store'
-import { supabaseBrowser } from '@/lib/supabase/client'
+import { authClient } from '@/lib/auth-client'
 import { clearTimerStorage } from '@/lib/timer/timerStore'
 import { SyncStatus } from './SyncStatus'
 
@@ -24,7 +24,7 @@ export function Sidebar({ email }: { email: string }) {
 
   async function signOut() {
     setSigningOut(true)
-    await supabaseBrowser().auth.signOut()
+    await authClient.signOut().catch(() => {})
     await resetStore()
     clearTimerStorage()
     navigator.serviceWorker?.controller?.postMessage({ type: 'clear' })
