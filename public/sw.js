@@ -3,7 +3,7 @@
 //  /_next/static/*        cache-first (content-hashed file names)
 //  page navigations       network-first with a 3 s timeout, then the cached copy
 //  icons, manifest        stale-while-revalidate
-//  /api/*, Supabase       never cached here (data lives in IndexedDB)
+//  /api/*                 never cached here (data lives in IndexedDB)
 
 const VERSION = 'v1'
 const STATIC = `edu-static-${VERSION}`

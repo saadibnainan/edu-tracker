@@ -1,14 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { admin, deleteUserByEmail } from './supabase'
+import { deleteUserByEmail, insertRows, listUsers, MAGIC_LINK, MAILPIT, resetRateLimits, selectRows } from './db'
 
-const MAILPIT = 'http://127.0.0.1:54324'
 const SHOTS = 'design/screenshots/app'
 mkdirSync(SHOTS, { recursive: true })
 
 async function signIn(page: Page, email: string): Promise<string> {
   await deleteUserByEmail(email)
+  await resetRateLimits()
   await fetch(`${MAILPIT}/api/v1/messages`, { method: 'DELETE' })
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
@@ -21,7 +21,7 @@ async function signIn(page: Page, email: string): Promise<string> {
     const body = (await res.json()) as { messages: { ID: string }[] }
     if (body.messages[0]) {
       const msg = (await (await fetch(`${MAILPIT}/api/v1/message/${body.messages[0].ID}`)).json()) as { Text: string }
-      link = msg.Text.match(/http:\/\/127\.0\.0\.1:54321\/auth\/v1\/verify\?[^\s)]+/)?.[0] ?? null
+      link = msg.Text.match(MAGIC_LINK)?.[0] ?? null
     }
     if (!link) await new Promise((r) => setTimeout(r, 250))
   }
@@ -29,11 +29,11 @@ async function signIn(page: Page, email: string): Promise<string> {
   await page.goto(link!)
   await expect(page).toHaveURL('http://localhost:3000/')
   await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
-  const { data } = await admin().auth.admin.listUsers({ perPage: 1000 })
+  const data = await listUsers()
   return data!.users.find((u) => u.email === email)!.id
 }
 
-/** Waits until every queued write reached Supabase: outbox empty and status "Synced". */
+/** Waits until every queued write reached the server: outbox empty and status "Synced". */
 async function synced(page: Page) {
   await expect
     .poll(
@@ -63,7 +63,6 @@ function parseClock(text: string): number {
 }
 
 async function seed(userId: string) {
-  const db = admin()
   const subjects = [
     { name: 'Linear Algebra', color_index: 0, weekly_target_minutes: 360 },
     { name: 'Organic Chemistry', color_index: 1, weekly_target_minutes: 300 },
@@ -72,7 +71,7 @@ async function seed(userId: string) {
     { name: 'Statistics', color_index: 4, weekly_target_minutes: 180 },
   ].map((s) => ({ ...s, id: randomUUID(), user_id: userId }))
   const archived = { id: randomUUID(), user_id: userId, name: 'Physics I', color_index: 5, weekly_target_minutes: null, archived_at: new Date().toISOString() }
-  await db.from('subjects').insert([...subjects, archived])
+  await insertRows('subjects', [...subjects, archived])
 
   const sessions = []
   const now = new Date()
@@ -96,8 +95,8 @@ async function seed(userId: string) {
       })
     }
   }
-  await db.from('sessions').insert(sessions)
-  await db.from('goals').insert([
+  await insertRows('sessions', sessions)
+  await insertRows('goals', [
     { id: randomUUID(), user_id: userId, subject_id: null, period: 'daily', target_minutes: 240 },
     { id: randomUUID(), user_id: userId, subject_id: null, period: 'weekly', target_minutes: 1200 },
     { id: randomUUID(), user_id: userId, subject_id: subjects[0]!.id, period: 'weekly', target_minutes: 360 },
@@ -106,12 +105,12 @@ async function seed(userId: string) {
     const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n)
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
   }
-  await db.from('exams').insert([
+  await insertRows('exams', [
     { id: randomUUID(), user_id: userId, subject_id: subjects[0]!.id, exam_date: day(12), title: 'Midterm' },
     { id: randomUUID(), user_id: userId, subject_id: subjects[1]!.id, exam_date: day(1), title: null },
     { id: randomUUID(), user_id: userId, subject_id: subjects[4]!.id, exam_date: day(30), title: 'Final exam' },
   ])
-  await db.from('calendar_sources').insert({ id: randomUUID(), user_id: userId, url: 'https://calendar.example.edu/timetable.ics', label: 'University timetable' })
+  await insertRows('calendar_sources', { id: randomUUID(), user_id: userId, url: 'https://calendar.example.edu/timetable.ics', label: 'University timetable' })
   return subjects
 }
 
@@ -142,7 +141,7 @@ test.describe.configure({ mode: 'serial' })
 test('timer survives reload and tab close, saves a session with a note', async ({ page }) => {
   const userId = await signIn(page, 'timer@example.test')
   const subjectId = randomUUID()
-  await admin().from('subjects').insert({ id: subjectId, user_id: userId, name: 'Linear Algebra', color_index: 0 })
+  await insertRows('subjects', { id: subjectId, user_id: userId, name: 'Linear Algebra', color_index: 0 })
   await page.reload()
   await synced(page)
 
@@ -186,7 +185,7 @@ test('timer survives reload and tab close, saves a session with a note', async (
   await expect.poll(() => page2.title()).toBe('Dashboard, EDU-Tracker')
   await synced(page2)
 
-  const { data } = await admin().from('sessions').select('*').eq('user_id', userId)
+  const { data } = await selectRows('sessions', '*', userId)
   expect(data).toHaveLength(1)
   expect(data![0]).toMatchObject({ kind: 'stopwatch', note: 'Gram-Schmidt and QR decomposition', tags: ['exam', 'chapter 5'] })
   expect(data![0]!.duration_seconds).toBeGreaterThanOrEqual(25 * 60)
@@ -195,7 +194,7 @@ test('timer survives reload and tab close, saves a session with a note', async (
 
 test('keyboard shortcuts: Space starts and pauses, S stops', async ({ page }) => {
   const userId = await signIn(page, 'keys@example.test')
-  await admin().from('subjects').insert({ id: randomUUID(), user_id: userId, name: 'Statistics', color_index: 4 })
+  await insertRows('subjects', { id: randomUUID(), user_id: userId, name: 'Statistics', color_index: 4 })
   await page.reload()
   await synced(page)
   await page.getByRole('heading', { name: 'Dashboard', level: 1 }).click()
@@ -217,7 +216,7 @@ test('keyboard shortcuts: Space starts and pauses, S stops', async ({ page }) =>
 test('pomodoro: a finished focus phase saves a session and starts the break', async ({ page }) => {
   const userId = await signIn(page, 'pomo@example.test')
   const subjectId = randomUUID()
-  await admin().from('subjects').insert({ id: subjectId, user_id: userId, name: 'German B2', color_index: 3 })
+  await insertRows('subjects', { id: subjectId, user_id: userId, name: 'German B2', color_index: 3 })
   // Focus phase of 25 min that started 26 min ago, as if the tab slept through the end.
   await page.evaluate((subjectId) => {
     const now = Date.now()
@@ -235,13 +234,13 @@ test('pomodoro: a finished focus phase saves a session and starts the break', as
   await expect(page.getByText(/Session saved, 0:25/)).toBeVisible()
   await expect.poll(() => page.title()).toMatch(/^Break 0[34]:\d\d German B2$/)
   await synced(page)
-  const { data } = await admin().from('sessions').select('kind, duration_seconds').eq('user_id', userId)
+  const { data } = await selectRows('sessions', 'kind, duration_seconds', userId)
   expect(data).toEqual([{ kind: 'pomodoro', duration_seconds: 1500 }])
 })
 
 test('history: manual entry, search, edit, delete', async ({ page }) => {
   const userId = await signIn(page, 'history@example.test')
-  await admin().from('subjects').insert({ id: randomUUID(), user_id: userId, name: 'Economic History', color_index: 2 })
+  await insertRows('subjects', { id: randomUUID(), user_id: userId, name: 'Economic History', color_index: 2 })
   await page.goto('/history')
   await synced(page)
   await expect(page.getByText('No sessions yet. Start a timer to log one.')).toBeVisible()
@@ -275,7 +274,7 @@ test('history: manual entry, search, edit, delete', async ({ page }) => {
   await list.getByRole('button', { name: 'Delete' }).click()
   await expect(page.getByText('No sessions yet. Start a timer to log one.')).toBeVisible()
   await synced(page)
-  const { data } = await admin().from('sessions').select('duration_seconds, deleted_at').eq('user_id', userId)
+  const { data } = await selectRows('sessions', 'duration_seconds, deleted_at', userId)
   expect(data).toHaveLength(1)
   expect(data![0]!.duration_seconds).toBe(4500)
   expect(data![0]!.deleted_at).not.toBeNull()
@@ -314,20 +313,20 @@ test('offline: writes queue in IndexedDB and sync on reconnect', async ({ page, 
   await page.reload()
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect(page.getByText('Offline. 2 writes queued.')).toBeVisible()
-  let remote = await admin().from('subjects').select('name').eq('user_id', userId)
+  let remote = await selectRows('subjects', 'name', userId)
   expect(remote.data).toEqual([])
 
   await context.setOffline(false)
   await synced(page)
-  remote = await admin().from('subjects').select('name').eq('user_id', userId)
+  remote = await selectRows('subjects', 'name', userId)
   expect(remote.data).toEqual([{ name: 'Offline subject' }])
-  const sessions = await admin().from('sessions').select('duration_seconds').eq('user_id', userId)
+  const sessions = await selectRows('sessions', 'duration_seconds', userId)
   expect(sessions.data).toHaveLength(1)
 })
 
 test('goals, exams and calendar', async ({ page }) => {
   const userId = await signIn(page, 'goals@example.test')
-  await admin().from('subjects').insert({ id: randomUUID(), user_id: userId, name: 'Statistics', color_index: 4 })
+  await insertRows('subjects', { id: randomUUID(), user_id: userId, name: 'Statistics', color_index: 4 })
   await mockIcs(page)
   await page.goto('/goals')
   await synced(page)
@@ -358,9 +357,9 @@ test('goals, exams and calendar', async ({ page }) => {
   await expect(page.getByText('Stats quiz')).toBeVisible()
   await expect(page.getByText('Statistics tutorial')).toBeVisible()
   await synced(page)
-  const src = await admin().from('calendar_sources').select('url').eq('user_id', userId)
+  const src = await selectRows('calendar_sources', 'url', userId)
   expect(src.data).toEqual([{ url: 'https://calendar.example.edu/timetable.ics' }])
-  const goals = await admin().from('goals').select('target_minutes').eq('user_id', userId)
+  const goals = await selectRows('goals', 'target_minutes', userId)
   expect(goals.data).toEqual([{ target_minutes: 180 }])
 })
 

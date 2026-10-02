@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { supabaseBrowser } from '@/lib/supabase/client'
+import { authClient } from '@/lib/auth-client'
 
 type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'sent'; email: string } | { kind: 'error'; message: string }
 
@@ -20,10 +20,7 @@ export function LoginForm({ linkError }: { linkError: boolean }) {
       return
     }
     setStatus({ kind: 'sending' })
-    const { error } = await supabaseBrowser().auth.signInWithOtp({
-      email: value,
-      options: { emailRedirectTo: `${window.location.origin}/auth/confirm`, shouldCreateUser: true },
-    })
+    const { error } = await authClient.signIn.magicLink({ email: value, callbackURL: '/', errorCallbackURL: '/login' })
     if (error) setStatus({ kind: 'error', message: error.status === 429 ? 'Too many requests. Wait a minute and try again.' : 'The link could not be sent. Check the address and try again.' })
     else setStatus({ kind: 'sent', email: value })
   }

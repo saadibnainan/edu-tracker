@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { fetchIcs, IcsFetchError } from '@/lib/ics/fetch'
 import { parseIcs } from '@/lib/ics/parse'
-import { supabaseServer } from '@/lib/supabase/server'
+import { asUser } from '@/lib/server/db'
+import { currentUser } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,9 +21,8 @@ function fail(error: string, status: number) {
  * links usually carry a secret token.
  */
 export async function GET(request: NextRequest) {
-  const supabase = await supabaseServer()
-  const { data: auth } = await supabase.auth.getClaims()
-  if (!auth?.claims?.sub) return fail('Sign in to load calendars.', 401)
+  const user = await currentUser(request.headers)
+  if (!user) return fail('Sign in to load calendars.', 401)
 
   const p = request.nextUrl.searchParams
   const source = p.get('source') ?? ''
@@ -34,8 +34,15 @@ export async function GET(request: NextRequest) {
   }
 
   // RLS limits this to the signed-in user's rows.
-  const { data: row, error } = await supabase.from('calendar_sources').select('url').eq('id', source).is('deleted_at', null).maybeSingle()
-  if (error) return fail('Calendar could not be loaded.', 502)
+  let row: { url: string } | undefined
+  try {
+    row = await asUser(user.id, async (db) => {
+      const r = await db.query<{ url: string }>('select url from public.calendar_sources where id = $1 and deleted_at is null', [source])
+      return r.rows[0]
+    })
+  } catch {
+    return fail('Calendar could not be loaded.', 502)
+  }
   if (!row) return fail('Unknown calendar.', 404)
 
   try {
